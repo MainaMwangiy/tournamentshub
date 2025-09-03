@@ -8,7 +8,7 @@ class TournamentsService {
       name,
       description,
       tournament_type = "single_elimination",
-      max_participants = 16,
+      max_players = 16,
       entry_fee = 0,
     } = tournamentData
 
@@ -29,8 +29,8 @@ class TournamentsService {
 
       // Insert tournament
       const result = await DatabaseHelper.executeQuery(
-        "INSERT INTO tournaments (id, name, description, tournament_type, max_participants, entry_fee, status, created_by, is_active, created_on, is_deleted) VALUES (uuid_generate_v4(), $1, $2, $3, $4, $5, $6, $7, 1, CURRENT_TIMESTAMP, 0) RETURNING *",
-        [name, description, tournament_type, max_participants, entry_fee, "draft", userId],
+        "INSERT INTO tournaments (id, name, description, tournament_type, max_players, entry_fee, status, created_by, is_active, created_on, is_deleted) VALUES (uuid_generate_v4(), $1, $2, $3, $4, $5, $6, $7, 1, CURRENT_TIMESTAMP, 0) RETURNING *",
+        [name, description, tournament_type, max_players, entry_fee, "draft", userId],
       )
 
       const tournament = result.rows[0]
@@ -102,12 +102,12 @@ class TournamentsService {
   }
 
   static async updateTournament(tournamentId, tournamentData, userId) {
-    const { name, description, max_participants, entry_fee } = tournamentData
+    const { name, description, max_players, entry_fee } = tournamentData
 
     try {
       const result = await DatabaseHelper.executeQuery(
-        "UPDATE tournaments SET name = $1, description = $2, max_participants = $3, entry_fee = $4, modified_on = CURRENT_TIMESTAMP WHERE id = $5 AND created_by = $6 AND is_deleted = 0 RETURNING *",
-        [name, description, max_participants, entry_fee, tournamentId, userId],
+        "UPDATE tournaments SET name = $1, description = $2, max_players = $3, entry_fee = $4, modified_on = CURRENT_TIMESTAMP WHERE id = $5 AND created_by = $6 AND is_deleted = 0 RETURNING *",
+        [name, description, max_players, entry_fee, tournamentId, userId],
       )
 
       if (result.rows.length === 0) {
@@ -208,7 +208,7 @@ class TournamentsService {
     }
   }
 
-  static async getTournamentBracket(tournamentId) {
+static async getTournamentBracket(tournamentId) {
     try {
       // Get tournament
       const tournamentResult = await DatabaseHelper.executeQuery(
@@ -224,13 +224,13 @@ class TournamentsService {
 
       // Get entries
       const entriesResult = await DatabaseHelper.executeQuery(
-        "SELECT * FROM tournament_entries WHERE tournament_id = $1 AND is_deleted = 0 ORDER BY seed ASC",
+        "SELECT * FROM tournament_entries WHERE tournament_id = $1 AND is_deleted = 0 ORDER BY created_on ASC",
         [tournamentId],
       )
 
       // Get matches
       const matchesResult = await DatabaseHelper.executeQuery(
-        "SELECT m.*, mr.player1_score, mr.player2_score, mr.winner_id FROM matches m LEFT JOIN match_results mr ON m.id = mr.match_id WHERE m.tournament_id = $1 AND m.is_deleted = 0 ORDER BY m.round, m.match_number",
+        "SELECT m.*, mr.player1_score, mr.player2_score FROM matches m LEFT JOIN match_results mr ON m.id = mr.match_id WHERE m.tournament_id = $1 AND m.is_deleted = 0 ORDER BY m.round_number, m.match_number",
         [tournamentId],
       )
 
@@ -243,7 +243,7 @@ class TournamentsService {
       logger.error(`Error fetching tournament bracket ${tournamentId}: ${error.message}`)
       throw error
     }
-  }
+}
 }
 
 export default TournamentsService
