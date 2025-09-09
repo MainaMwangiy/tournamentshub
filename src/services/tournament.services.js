@@ -304,13 +304,36 @@ class TournamentsService {
       console.log(`[DEBUG] Total matches in tournament: ${allMatchesQuery.rows[0].count}`)
 
       // Find the match (round/matchIndex 0-based in frontend, 1-based in DB)
-      const matchResultQuery = await DatabaseHelper.executeQuery(
+      let matchResultQuery = await DatabaseHelper.executeQuery(
         "SELECT id, player1_id, player2_id, player1_name, player2_name FROM matches WHERE tournament_id = $1 AND round_number = $2 AND match_number = $3 AND is_deleted = 0",
         [tournamentId, round + 1, matchIndex + 1],
       )
 
       if (matchResultQuery.rows.length === 0) {
-        throw new ValidationError("Match not found. Ensure bracket is generated first.")
+        console.log(`[DEBUG] Match not found, creating placeholder match for R${round + 1}M${matchIndex + 1}`)
+
+        // Create a placeholder match with TBD players
+        await DatabaseHelper.executeQuery(
+          "INSERT INTO matches (tournament_id, round_number, match_number, player1_id, player2_id, player1_name, player2_name, status, created_on, is_deleted) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP, 0)",
+          [
+            tournamentId,
+            round + 1,
+            matchIndex + 1,
+            null, // player1_id
+            null, // player2_id
+            "TBD", // player1_name
+            "TBD", // player2_name
+            "pending",
+          ],
+        )
+
+        // Re-query to get the created match
+        matchResultQuery = await DatabaseHelper.executeQuery(
+          "SELECT id, player1_id, player2_id, player1_name, player2_name FROM matches WHERE tournament_id = $1 AND round_number = $2 AND match_number = $3 AND is_deleted = 0",
+          [tournamentId, round + 1, matchIndex + 1],
+        )
+
+        console.log(`[DEBUG] Created placeholder match with ID: ${matchResultQuery.rows[0].id}`)
       }
 
       const match = matchResultQuery.rows[0]
@@ -443,6 +466,7 @@ class TournamentsService {
         "UPDATE match_results SET is_deleted = 1 WHERE tournament_id = $1 AND is_deleted = 0",
         [tournamentId],
       )
+      logger.info(`[DEBUG] Soft delete completed`)
 
       const playerEntryIds = {}
       logger.info(`[DEBUG] Inserting ${players.length} players`)
@@ -465,6 +489,7 @@ class TournamentsService {
           [tournamentId, player.name, player.seed || 0],
         )
         playerEntryIds[player.name] = result.rows[0].id
+        logger.info(`[DEBUG] Player ${player.name} inserted with ID: ${result.rows[0].id}`)
       }
 
       logger.info(`[DEBUG] Player entry IDs created: ${Object.keys(playerEntryIds).length}`)
@@ -476,6 +501,10 @@ class TournamentsService {
           const match = bracket[r][m]
           const player1Id = match.player1.name === "BYE" ? null : playerEntryIds[match.player1.name]
           const player2Id = match.player2.name === "BYE" ? null : playerEntryIds[match.player2.name]
+
+          logger.info(
+            `[DEBUG] Match ${m + 1}: ${match.player1.name} (ID: ${player1Id}) vs ${match.player2.name} (ID: ${player2Id})`,
+          )
 
           if (r === 0 && match.player1.name !== "BYE" && !player1Id) {
             logger.error(`[DEBUG] Missing player1Id for ${match.player1.name}`)
@@ -490,7 +519,9 @@ class TournamentsService {
             )
           }
 
-          logger.info(`[DEBUG] Inserting match R${r + 1}M${m + 1}: ${match.player1.name} vs ${match.player2.name}`)
+          logger.info(
+            `[DEBUG] About to insert match R${r + 1}M${m + 1}: ${match.player1.name} vs ${match.player2.name}`,
+          )
 
           try {
             const matchInsert = await DatabaseHelper.executeQuery(
@@ -531,6 +562,7 @@ class TournamentsService {
             }
           } catch (matchError) {
             logger.error(`[DEBUG] Error inserting match R${r + 1}M${m + 1}: ${matchError.message}`)
+            logger.error(`[DEBUG] Match error stack: ${matchError.stack}`)
             throw matchError
           }
         }
@@ -550,6 +582,13 @@ class TournamentsService {
         logger.info(`[DEBUG] Bracket data not stored in tournament_brackets table: ${bracketError.message}`)
       }
 
+      // Verification BEFORE commit to see if matches exist in transaction
+      const preCommitVerify = await DatabaseHelper.executeQuery(
+        "SELECT COUNT(*) as count FROM matches WHERE tournament_id = $1 AND is_deleted = 0",
+        [tournamentId],
+      )
+      logger.info(`[DEBUG] PRE-COMMIT verification: ${preCommitVerify.rows[0].count} matches found in transaction`)
+
       logger.info(`[DEBUG] Committing transaction`)
       await DatabaseHelper.executeQuery("COMMIT")
 
@@ -557,15 +596,25 @@ class TournamentsService {
         "SELECT COUNT(*) as count FROM matches WHERE tournament_id = $1 AND is_deleted = 0",
         [tournamentId],
       )
-      logger.info(`[DEBUG] Verification: ${verifyMatches.rows[0].count} matches found in database after commit`)
+      logger.info(
+        `[DEBUG] POST-COMMIT verification: ${verifyMatches.rows[0].count} matches found in database after commit`,
+      )
+
+      // Detailed match listing for debugging
+      const matchList = await DatabaseHelper.executeQuery(
+        "SELECT round_number, match_number, player1_name, player2_name FROM matches WHERE tournament_id = $1 AND is_deleted = 0 ORDER BY round_number, match_number",
+        [tournamentId],
+      )
+      logger.info(`[DEBUG] Matches in database: ${JSON.stringify(matchList.rows)}`)
 
       logger.info(`Bracket saved for tournament ${tournamentId} by user ${userId}`)
-      return { success: true, bracket }
+      return { success: true, bracket, matchesCreated: totalMatchesInserted }
     } catch (error) {
-      logger.info(`[DEBUG] Error occurred, rolling back transaction`)
+      logger.error(`[DEBUG] ===== SAVE BRACKET FAILED =====`)
+      logger.error(`[DEBUG] Error message: ${error.message}`)
+      logger.error(`[DEBUG] Error stack: ${error.stack}`)
       await DatabaseHelper.executeQuery("ROLLBACK")
       logger.error(`Error saving bracket for tournament ${tournamentId}: ${error.message}`)
-      logger.error(`Error stack: ${error.stack}`)
       throw error
     }
   }
