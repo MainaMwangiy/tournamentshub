@@ -1,6 +1,7 @@
 import TournamentsService from "../services/tournament.services.js"
 import { SuccessResponse } from "../middleware/responses.js"
 import logger from "../middleware/logger.js"
+import { ValidationError } from "../middleware/errors.js"
 
 class TournamentsController {
   static async createTournament(req, res, next) {
@@ -117,6 +118,59 @@ class TournamentsController {
       return SuccessResponse(res, 200, "Tournament bracket retrieved successfully", bracket)
     } catch (error) {
       logger.error(`Get tournament bracket error: ${error.message}`)
+      next(error)
+    }
+  }
+
+  static async updateMatchResult(req, res, next) {
+    try {
+      const { tournamentId } = req.params
+      const matchData = req.body // { round, matchIndex, score1, score2 }
+      const userId = req.user.id
+      const result = await TournamentsService.updateMatchResult(tournamentId, matchData, userId)
+      return SuccessResponse(res, 200, "Match result updated successfully", result)
+    } catch (error) {
+      logger.error(`Update match result error: ${error.message}`)
+      next(error)
+    }
+  }
+
+  // Add this for saving bracket
+  static async saveBracket(req, res, next) {
+    try {
+      const { tournamentId } = req.params
+      const { bracket, players } = req.body
+      const userId = req.user.id
+      const result = await TournamentsService.saveBracket(tournamentId, bracket, players, userId)
+      return SuccessResponse(res, 200, "Bracket saved successfully", result)
+    } catch (error) {
+      logger.error(`Save bracket error: ${error.message}`)
+      if (error instanceof ValidationError) {
+        return res.status(400).json({
+          success: false,
+          message: error.message,
+          errors: [],
+        })
+      } else {
+        return res.status(500).json({
+          success: false,
+          message: "Internal server error",
+          errors: [],
+        })
+      }
+    }
+  }
+
+  // Add this for adding player
+  static async addPlayer(req, res, next) {
+    try {
+      const { tournamentId } = req.params
+      const playerData = req.body // { name, seed }
+      const userId = req.user.id
+      const result = await TournamentsService.addPlayerToTournament(tournamentId, playerData, userId)
+      return SuccessResponse(res, 201, "Player added successfully", result)
+    } catch (error) {
+      logger.error(`Add player error: ${error.message}`)
       next(error)
     }
   }
