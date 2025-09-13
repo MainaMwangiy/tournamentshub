@@ -51,6 +51,7 @@ class TournamentsService {
       return result.rows
     } catch (error) {
       logger.error(`Error fetching tournaments for user ${userId}: ${error.message}`)
+      console.log(`Error fetching tournaments for user ${userId}: ${error.message}`)
       throw error
     }
   }
