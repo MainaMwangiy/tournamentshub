@@ -15,16 +15,9 @@ if (process.env.NODE_ENV === 'production') {
 } else {
     dbConfig.host = process.env.DB_HOST || 'localhost';
     dbConfig.port = parseInt(process.env.DB_PORT) || 5432;
-    dbConfig.database = process.env.DB_NAME || 'karagani-db';
+    dbConfig.database = process.env.DB_NAME || 'karagani_farm_db';
     dbConfig.user = process.env.DB_USER || 'postgres';
-    dbConfig.password = process.env.DB_PASSWORD;
-}
-
-if (process.env.NODE_ENV !== 'production' && process.env.DATABASE_URL) {
-    console.error('Error: DATABASE_URL is set in development. This might connect to production. Please remove DATABASE_URL from your environment.');
-    process.exit(1);
-}
-
+    dbConfig.password = process.env.DB_PASSWORD;}
 dbConfig.max = 1; // Reduced for serverless
 dbConfig.min = 0; // No minimum connections
 dbConfig.idleTimeoutMillis = 10000; // 10 seconds
@@ -43,6 +36,7 @@ if (process.env.NODE_ENV !== 'production') {
         try {
             const client = await pool.connect();
             console.log('Connected to PostgreSQL successfully');
+            console.log('Database:', dbConfig.database || 'from DATABASE_URL');
             client.release();
         } catch (error) {
             console.error('Failed to connect to PostgreSQL:', error.message);
