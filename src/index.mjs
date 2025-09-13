@@ -76,7 +76,7 @@ app.use(
     origin: [
       "https://tournament-app.vercel.app",
       "http://localhost:3000",
-      "https://localhost:3000",
+      "https://tournaments-lime.vercel.app",
       process.env.FRONTEND_URL,
     ].filter(Boolean),
     credentials: true,
