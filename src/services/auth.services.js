@@ -54,6 +54,7 @@ async ssoLogin(userData) {
       refreshToken,
     }
   } catch (error) {
+    console.log(`SSO Login failed: ${error.message}`)
     throw new Error(`SSO Login failed: ${error.message}`)
   } finally {
     client.release()
