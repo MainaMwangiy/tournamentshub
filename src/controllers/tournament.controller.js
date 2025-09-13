@@ -40,9 +40,8 @@ class TournamentsController {
 
   static async getTournamentDetails(req, res, next) {
     try {
-      const { id } = req.params
-      const userId = req.user.id
-      const tournament = await TournamentsService.getTournamentDetails(id, userId)
+      const { id } = req.params;
+      const tournament = await TournamentsService.getTournamentDetails(id)
       return SuccessResponse(res, 200, "Tournament details retrieved successfully", tournament)
     } catch (error) {
       logger.error(`Get tournament details error: ${error.message}`)

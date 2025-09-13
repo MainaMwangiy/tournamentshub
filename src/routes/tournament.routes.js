@@ -7,19 +7,19 @@ const router = express.Router()
 // Public routes
 router.get("/view/:id", TournamentsController.getTournamentById)
 router.get("/bracket/:id", TournamentsController.getTournamentBracket)
+router.get("/details/:id", TournamentsController.getTournamentDetails)
 
 // Protected routes
 router.post("/create", authMiddleware, TournamentsController.createTournament)
 router.get("/list", authMiddleware, TournamentsController.getAllTournaments)
-router.get("/details/:id", authMiddleware, TournamentsController.getTournamentDetails)
-router.put("/update/:id", authMiddleware, TournamentsController.updateTournament) // Fixed: removed trailing comma
+router.put("/update/:id", authMiddleware, TournamentsController.updateTournament) 
 router.delete("/delete/:id", authMiddleware, TournamentsController.deleteTournament)
 router.post("/start/:id", authMiddleware, TournamentsController.startTournament)
 router.post("/end/:id", authMiddleware, TournamentsController.endTournament)
 router.post("/generate-url/:id", authMiddleware, TournamentsController.generateTournamentUrl)
 
 // New routes
-router.put("/:tournamentId/match-result", authMiddleware, TournamentsController.updateMatchResult) // Fixed: authMiddleware
+router.put("/:tournamentId/match-result", authMiddleware, TournamentsController.updateMatchResult)
 router.post("/:tournamentId/bracket", authMiddleware, TournamentsController.saveBracket)
 router.post("/:tournamentId/player", authMiddleware, TournamentsController.addPlayer)
 

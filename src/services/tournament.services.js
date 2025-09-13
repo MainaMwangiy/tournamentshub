@@ -73,12 +73,12 @@ class TournamentsService {
     }
   }
 
-  static async getTournamentDetails(tournamentId, userId) {
+  static async getTournamentDetails(tournamentId) {
     try {
       // Get tournament with entries count
       const tournamentResult = await DatabaseHelper.executeQuery(
-        "SELECT t.*, u.username as created_by_username, COUNT(te.id) as entries_count FROM tournaments t LEFT JOIN users u ON t.created_by = u.id LEFT JOIN tournament_entries te ON t.id = te.tournament_id AND te.is_deleted = 0 WHERE t.id = $1 AND t.created_by = $2 AND t.is_deleted = 0 GROUP BY t.id, u.username",
-        [tournamentId, userId],
+        "SELECT t.*, u.username as created_by_username, COUNT(te.id) as entries_count FROM tournaments t LEFT JOIN users u ON t.created_by = u.id LEFT JOIN tournament_entries te ON t.id = te.tournament_id AND te.is_deleted = 0 WHERE t.id = $1 AND t.is_deleted = 0 GROUP BY t.id, u.username",
+        [tournamentId],
       )
 
       if (tournamentResult.rows.length === 0) {
@@ -418,65 +418,62 @@ class TournamentsService {
     }
   }
 
-  static async saveBracket(tournamentId, bracket, players, userId) {
-    try {
-      logger.info(`[DEBUG] saveBracket called with tournamentId: ${tournamentId}, userId: ${userId}`)
-      logger.info(`[DEBUG] bracket length: ${bracket?.length}, players count: ${players?.length}`)
+static async saveBracket(tournamentId, bracket, players, userId) {
+  try {
+    logger.info(`[DEBUG] saveBracket called with tournamentId: ${tournamentId}, userId: ${userId}`);
+    logger.info(`[DEBUG] bracket length: ${bracket?.length}, players count: ${players?.length}`);
+    if (!bracket || !players) {
+      throw new ValidationError("Missing bracket or players data");
+    }
 
-      if (!bracket || !players) {
-        throw new ValidationError("Missing bracket or players data")
+    // Verify tournament
+    const tournamentResult = await DatabaseHelper.executeQuery(
+      "SELECT id, max_players FROM tournaments WHERE id = $1 AND created_by = $2 AND is_deleted = 0",
+      [tournamentId, userId],
+    );
+    if (tournamentResult.rows.length === 0) {
+      throw new ValidationError("Tournament not found or unauthorized");
+    }
+
+    const { max_players } = tournamentResult.rows[0];
+    if (
+      !players ||
+      players.length < 2 ||
+      !Number.isInteger(Math.log2(players.length)) ||
+      players.length > max_players
+    ) {
+      throw new ValidationError("Invalid number of players for bracket");
+    }
+
+    // Start transaction
+    logger.info(`[DEBUG] Starting transaction`);
+    await DatabaseHelper.executeQuery("BEGIN");
+
+    // Soft delete existing data
+    logger.info(`[DEBUG] Soft deleting existing data`);
+    await DatabaseHelper.executeQuery(
+      "UPDATE tournament_entries SET is_deleted = 1 WHERE tournament_id = $1 AND is_deleted = 0",
+      [tournamentId],
+    );
+    await DatabaseHelper.executeQuery(
+      "UPDATE matches SET is_deleted = 1 WHERE tournament_id = $1 AND is_deleted = 0",
+      [tournamentId],
+    );
+    await DatabaseHelper.executeQuery(
+      "UPDATE match_results SET is_deleted = 1 WHERE tournament_id = $1 AND is_deleted = 0",
+      [tournamentId],
+    );
+    logger.info(`[DEBUG] Soft delete completed`);
+
+    const playerEntryIds = {};
+    logger.info(`[DEBUG] Inserting ${players.length} players`);
+    for (const player of players) {
+      if (!player.name || player.name === "BYE") {
+        continue;
       }
 
-      logger.info(`[DEBUG] Bracket length: ${bracket.length}, Players count: ${players.length}`)
-
-      // Verify tournament
-      const tournamentResult = await DatabaseHelper.executeQuery(
-        "SELECT id, max_players FROM tournaments WHERE id = $1 AND created_by = $2 AND is_deleted = 0",
-        [tournamentId, userId],
-      )
-      if (tournamentResult.rows.length === 0) {
-        throw new ValidationError("Tournament not found or unauthorized")
-      }
-
-      const { max_players } = tournamentResult.rows[0]
-      if (
-        !players ||
-        players.length < 2 ||
-        !Number.isInteger(Math.log2(players.length)) ||
-        players.length > max_players
-      ) {
-        throw new ValidationError("Invalid number of players for bracket")
-      }
-
-      // Start transaction
-      logger.info(`[DEBUG] Starting transaction`)
-      await DatabaseHelper.executeQuery("BEGIN")
-
-      // Soft delete existing data
-      logger.info(`[DEBUG] Soft deleting existing data`)
-      await DatabaseHelper.executeQuery(
-        "UPDATE tournament_entries SET is_deleted = 1 WHERE tournament_id = $1 AND is_deleted = 0",
-        [tournamentId],
-      )
-      await DatabaseHelper.executeQuery(
-        "UPDATE matches SET is_deleted = 1 WHERE tournament_id = $1 AND is_deleted = 0",
-        [tournamentId],
-      )
-      await DatabaseHelper.executeQuery(
-        "UPDATE match_results SET is_deleted = 1 WHERE tournament_id = $1 AND is_deleted = 0",
-        [tournamentId],
-      )
-      logger.info(`[DEBUG] Soft delete completed`)
-
-      const playerEntryIds = {}
-      logger.info(`[DEBUG] Inserting ${players.length} players`)
-      for (const player of players) {
-        if (!player.name || player.name === "BYE") {
-          continue // Skip BYE players for DB entries
-        }
-
-        logger.info(`[DEBUG] Inserting player: ${player.name}, seed: ${player.seed}`)
-
+      logger.info(`[DEBUG] Inserting player: ${player.name}, seed: ${player.seed}`);
+      try {
         const result = await DatabaseHelper.executeQuery(
           `INSERT INTO tournament_entries (tournament_id, player_name, seed_number, created_on, is_deleted) 
            VALUES ($1, $2, $3, CURRENT_TIMESTAMP, 0) 
@@ -487,137 +484,140 @@ class TournamentsService {
              modified_on = CURRENT_TIMESTAMP
            RETURNING id`,
           [tournamentId, player.name, player.seed || 0],
-        )
-        playerEntryIds[player.name] = result.rows[0].id
-        logger.info(`[DEBUG] Player ${player.name} inserted with ID: ${result.rows[0].id}`)
+        );
+        playerEntryIds[player.name] = result.rows[0].id;
+        logger.info(`[DEBUG] Player ${player.name} inserted with ID: ${result.rows[0].id}`);
+      } catch (playerError) {
+        logger.error(`[DEBUG] Failed to insert player ${player.name}: ${playerError.message}`);
+        throw playerError;
       }
+    }
 
-      logger.info(`[DEBUG] Player entry IDs created: ${Object.keys(playerEntryIds).length}`)
+    logger.info(`[DEBUG] Player entry IDs created: ${Object.keys(playerEntryIds).length}`);
 
-      let totalMatchesInserted = 0
-      for (let r = 0; r < bracket.length; r++) {
-        logger.info(`[DEBUG] Processing round ${r + 1} with ${bracket[r].length} matches`)
-        for (let m = 0; m < bracket[r].length; m++) {
-          const match = bracket[r][m]
-          const player1Id = match.player1.name === "BYE" ? null : playerEntryIds[match.player1.name]
-          const player2Id = match.player2.name === "BYE" ? null : playerEntryIds[match.player2.name]
+    let totalMatchesInserted = 0;
+    for (let r = 0; r < bracket.length; r++) {
+      logger.info(`[DEBUG] Processing round ${r + 1} with ${bracket[r].length} matches`);
+      for (let m = 0; m < bracket[r].length; m++) {
+        const match = bracket[r][m];
+        const player1Id = match.player1.name === "BYE" ? null : playerEntryIds[match.player1.name];
+        const player2Id = match.player2.name === "BYE" ? null : playerEntryIds[match.player2.name];
 
-          logger.info(
-            `[DEBUG] Match ${m + 1}: ${match.player1.name} (ID: ${player1Id}) vs ${match.player2.name} (ID: ${player2Id})`,
-          )
+        if (!player1Id && match.player1.name !== "BYE") {
+          logger.error(`[DEBUG] Missing player1Id for ${match.player1.name} in round ${r + 1}, match ${m + 1}`);
+          throw new ValidationError(`Invalid player data for ${match.player1.name} in match ${m + 1} of round ${r + 1}`);
+        }
+        if (!player2Id && match.player2.name !== "BYE") {
+          logger.error(`[DEBUG] Missing player2Id for ${match.player2.name} in round ${r + 1}, match ${m + 1}`);
+          throw new ValidationError(`Invalid player data for ${match.player2.name} in match ${m + 1} of round ${r + 1}`);
+        }
 
-          if (r === 0 && match.player1.name !== "BYE" && !player1Id) {
-            logger.error(`[DEBUG] Missing player1Id for ${match.player1.name}`)
-            throw new ValidationError(
-              `Invalid player data for ${match.player1.name} in match ${m + 1} of round ${r + 1}`,
-            )
+        logger.info(
+          `[DEBUG] About to insert match R${r + 1}M${m + 1}: ${match.player1.name} vs ${match.player2.name}`,
+        );
+
+        try {
+          const matchInsert = await DatabaseHelper.executeQuery(
+            `INSERT INTO matches (tournament_id, round_number, match_number, player1_id, player2_id, player1_name, player2_name, status, created_on, is_deleted) 
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP, 0) 
+             ON CONFLICT (tournament_id, round_number, match_number) 
+             DO UPDATE SET 
+               player1_id = EXCLUDED.player1_id,
+               player2_id = EXCLUDED.player2_id,
+               player1_name = EXCLUDED.player1_name,
+               player2_name = EXCLUDED.player2_name,
+               status = EXCLUDED.status,
+               is_deleted = 0,
+               modified_on = CURRENT_TIMESTAMP
+             RETURNING id`,
+            [
+              tournamentId,
+              r + 1,
+              m + 1,
+              player1Id,
+              player2Id,
+              match.player1.name,
+              match.player2.name,
+              match.player1.name === "BYE" || match.player2.name === "BYE" ? "completed" : "pending",
+            ],
+          );
+          const matchId = matchInsert.rows[0].id;
+          totalMatchesInserted++;
+          logger.info(`[DEBUG] Successfully inserted match ${matchId} for R${r + 1}M${m + 1}`);
+
+          if (match.player1.name === "BYE" || match.player2.name === "BYE") {
+            const winnerScore = match.player1.name === "BYE" ? (match.score2 || 1) : (match.score1 || 1);
+            const loserScore = 0;
+            await DatabaseHelper.executeQuery(
+              "INSERT INTO match_results (match_id, tournament_id, player1_score, player2_score, created_on) VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)",
+              [matchId, tournamentId, match.player1.name === "BYE" ? loserScore : winnerScore, match.player2.name === "BYE" ? loserScore : winnerScore],
+            );
+            logger.info(`[DEBUG] Inserted match result for BYE match ${matchId}`);
+          } else if ((match.score1 && match.score1 > 0) || (match.score2 && match.score2 > 0)) {
+            await DatabaseHelper.executeQuery(
+              "INSERT INTO match_results (match_id, tournament_id, player1_score, player2_score, created_on) VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)",
+              [matchId, tournamentId, match.score1 || 0, match.score2 || 0],
+            );
+            logger.info(`[DEBUG] Inserted match result for match ${matchId}`);
           }
-          if (r === 0 && match.player2.name !== "BYE" && !player2Id) {
-            logger.error(`[DEBUG] Missing player2Id for ${match.player2.name}`)
-            throw new ValidationError(
-              `Invalid player data for ${match.player2.name} in match ${m + 1} of round ${r + 1}`,
-            )
-          }
-
-          logger.info(
-            `[DEBUG] About to insert match R${r + 1}M${m + 1}: ${match.player1.name} vs ${match.player2.name}`,
-          )
-
-          try {
-            const matchInsert = await DatabaseHelper.executeQuery(
-              `INSERT INTO matches (tournament_id, round_number, match_number, player1_id, player2_id, player1_name, player2_name, status, created_on, is_deleted) 
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP, 0) 
-               ON CONFLICT (tournament_id, round_number, match_number) 
-               DO UPDATE SET 
-                 player1_id = EXCLUDED.player1_id,
-                 player2_id = EXCLUDED.player2_id,
-                 player1_name = EXCLUDED.player1_name,
-                 player2_name = EXCLUDED.player2_name,
-                 status = EXCLUDED.status,
-                 is_deleted = 0,
-                 modified_on = CURRENT_TIMESTAMP
-               RETURNING id`,
-              [
-                tournamentId,
-                r + 1, // Convert to 1-based for database
-                m + 1, // Convert to 1-based for database
-                player1Id,
-                player2Id,
-                match.player1.name,
-                match.player2.name,
-                match.player1.name === "BYE" || match.player2.name === "BYE" ? "completed" : "pending",
-              ],
-            )
-            const matchId = matchInsert.rows[0].id
-            totalMatchesInserted++
-            logger.info(`[DEBUG] Successfully inserted match ${matchId} for R${r + 1}M${m + 1}`)
-
-            // Only insert match_results if there are actual scores
-            if ((match.score1 && match.score1 > 0) || (match.score2 && match.score2 > 0)) {
-              await DatabaseHelper.executeQuery(
-                "INSERT INTO match_results (match_id, tournament_id, player1_score, player2_score, created_on) VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)",
-                [matchId, tournamentId, match.score1 || 0, match.score2 || 0],
-              )
-              logger.info(`[DEBUG] Inserted match result for match ${matchId}`)
-            }
-          } catch (matchError) {
-            logger.error(`[DEBUG] Error inserting match R${r + 1}M${m + 1}: ${matchError.message}`)
-            logger.error(`[DEBUG] Match error stack: ${matchError.stack}`)
-            throw matchError
-          }
+        } catch (matchError) {
+          logger.error(
+            `[DEBUG] Failed to insert match R${r + 1}M${m + 1} with params: ${JSON.stringify([
+              tournamentId,
+              r + 1,
+              m + 1,
+              player1Id,
+              player2Id,
+              match.player1.name,
+              match.player2.name,
+              match.player1.name === "BYE" || match.player2.name === "BYE" ? "completed" : "pending",
+            ])}`,
+          );
+          throw matchError;
         }
       }
-
-      logger.info(`[DEBUG] Total matches inserted: ${totalMatchesInserted}`)
-
-      // Only insert if tournament_brackets table exists, otherwise skip this step
-      try {
-        await DatabaseHelper.executeQuery(
-          "INSERT INTO tournament_brackets (tournament_id, bracket_data, last_updated_by, created_on) VALUES ($1, $2, $3, CURRENT_TIMESTAMP)",
-          [tournamentId, JSON.stringify(bracket), userId],
-        )
-        logger.info(`[DEBUG] Bracket data saved to tournament_brackets table`)
-      } catch (bracketError) {
-        // If tournament_brackets table doesn't exist, just log and continue
-        logger.info(`[DEBUG] Bracket data not stored in tournament_brackets table: ${bracketError.message}`)
-      }
-
-      // Verification BEFORE commit to see if matches exist in transaction
-      const preCommitVerify = await DatabaseHelper.executeQuery(
-        "SELECT COUNT(*) as count FROM matches WHERE tournament_id = $1 AND is_deleted = 0",
-        [tournamentId],
-      )
-      logger.info(`[DEBUG] PRE-COMMIT verification: ${preCommitVerify.rows[0].count} matches found in transaction`)
-
-      logger.info(`[DEBUG] Committing transaction`)
-      await DatabaseHelper.executeQuery("COMMIT")
-
-      const verifyMatches = await DatabaseHelper.executeQuery(
-        "SELECT COUNT(*) as count FROM matches WHERE tournament_id = $1 AND is_deleted = 0",
-        [tournamentId],
-      )
-      logger.info(
-        `[DEBUG] POST-COMMIT verification: ${verifyMatches.rows[0].count} matches found in database after commit`,
-      )
-
-      // Detailed match listing for debugging
-      const matchList = await DatabaseHelper.executeQuery(
-        "SELECT round_number, match_number, player1_name, player2_name FROM matches WHERE tournament_id = $1 AND is_deleted = 0 ORDER BY round_number, match_number",
-        [tournamentId],
-      )
-      logger.info(`[DEBUG] Matches in database: ${JSON.stringify(matchList.rows)}`)
-
-      logger.info(`Bracket saved for tournament ${tournamentId} by user ${userId}`)
-      return { success: true, bracket, matchesCreated: totalMatchesInserted }
-    } catch (error) {
-      logger.error(`[DEBUG] ===== SAVE BRACKET FAILED =====`)
-      logger.error(`[DEBUG] Error message: ${error.message}`)
-      logger.error(`[DEBUG] Error stack: ${error.stack}`)
-      await DatabaseHelper.executeQuery("ROLLBACK")
-      logger.error(`Error saving bracket for tournament ${tournamentId}: ${error.message}`)
-      throw error
     }
+
+    logger.info(`[DEBUG] Total matches inserted: ${totalMatchesInserted}`);
+
+    try {
+      await DatabaseHelper.executeQuery(
+        "INSERT INTO tournament_brackets (tournament_id, bracket_data, last_updated_by, created_on) VALUES ($1, $2, $3, CURRENT_TIMESTAMP)",
+        [tournamentId, JSON.stringify(bracket), userId],
+      );
+      logger.info(`[DEBUG] Bracket data saved to tournament_brackets table`);
+    } catch (bracketError) {
+      logger.info(`[DEBUG] Bracket data not stored in tournament_brackets table: ${bracketError.message}`);
+    }
+
+    logger.info(`[DEBUG] Committing transaction`);
+    await DatabaseHelper.executeQuery("COMMIT");
+
+    const verifyMatches = await DatabaseHelper.executeQuery(
+      "SELECT COUNT(*) as count FROM matches WHERE tournament_id = $1 AND is_deleted = 0",
+      [tournamentId],
+    );
+    logger.info(
+      `[DEBUG] POST-COMMIT verification: ${verifyMatches.rows[0].count} matches found in database after commit`,
+    );
+
+    const matchList = await DatabaseHelper.executeQuery(
+      "SELECT round_number, match_number, player1_name, player2_name FROM matches WHERE tournament_id = $1 AND is_deleted = 0 ORDER BY round_number, match_number",
+      [tournamentId],
+    );
+    logger.info(`[DEBUG] Matches in database: ${JSON.stringify(matchList.rows)}`);
+
+    logger.info(`Bracket saved for tournament ${tournamentId} by user ${userId}`);
+    return { success: true, bracket, matchesCreated: totalMatchesInserted };
+  } catch (error) {
+    logger.error(`[DEBUG] ===== SAVE BRACKET FAILED =====`);
+    logger.error(`[DEBUG] Error message: ${error.message}`);
+    logger.error(`[DEBUG] Error stack: ${error.stack}`);
+    await DatabaseHelper.executeQuery("ROLLBACK");
+    logger.error(`Error saving bracket for tournament ${tournamentId}: ${error.message}`);
+    throw error;
   }
+}
 
   static async addPlayerToTournament(tournamentId, playerData, userId) {
     try {
