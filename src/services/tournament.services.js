@@ -505,8 +505,9 @@ static async saveBracket(tournamentId, bracket, players, userId) {
         const player2Id = match.player2.name === "BYE" ? null : playerEntryIds[match.player2.name];
 
         if (!player1Id && match.player1.name !== "BYE") {
-          logger.error(`[DEBUG] Missing player1Id for ${match.player1.name} in round ${r + 1}, match ${m + 1}`);
-          throw new ValidationError(`Invalid player data for ${match.player1.name} in match ${m + 1} of round ${r + 1}`);
+          continue;
+          // logger.error(`[DEBUG] Missing player1Id for ${match.player1.name} in round ${r + 1}, match ${m + 1}`);
+          // throw new ValidationError(`Invalid player data for ${match.player1.name} in match ${m + 1} of round ${r + 1}`);
         }
         if (!player2Id && match.player2.name !== "BYE") {
           logger.error(`[DEBUG] Missing player2Id for ${match.player2.name} in round ${r + 1}, match ${m + 1}`);
