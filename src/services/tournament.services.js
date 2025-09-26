@@ -501,15 +501,14 @@ static async saveBracket(tournamentId, bracket, players, userId) {
       logger.info(`[DEBUG] Processing round ${r + 1} with ${bracket[r].length} matches`);
       for (let m = 0; m < bracket[r].length; m++) {
         const match = bracket[r][m];
-        const player1Id = match.player1.name === "BYE" ? null : playerEntryIds[match.player1.name];
-        const player2Id = match.player2.name === "BYE" ? null : playerEntryIds[match.player2.name];
+        const player1Id = match.player1.name === "BYE" || match.player1.name === "TBD" ? null : playerEntryIds[match.player1.name];
+        const player2Id = match.player2.name === "BYE" || match.player2.name === "TBD" ? null : playerEntryIds[match.player2.name];
 
-        if (!player1Id && match.player1.name !== "BYE") {
-          continue;
-          // logger.error(`[DEBUG] Missing player1Id for ${match.player1.name} in round ${r + 1}, match ${m + 1}`);
-          // throw new ValidationError(`Invalid player data for ${match.player1.name} in match ${m + 1} of round ${r + 1}`);
+        if (!player1Id && match.player1.name !== "BYE" && match.player1.name !== "TBD") {
+          logger.error(`[DEBUG] Missing player1Id for ${match.player1.name} in round ${r + 1}, match ${m + 1}`);
+          throw new ValidationError(`Invalid player data for ${match.player1.name} in match ${m + 1} of round ${r + 1}`);
         }
-        if (!player2Id && match.player2.name !== "BYE") {
+        if (!player2Id && match.player2.name !== "BYE" && match.player2.name !== "TBD") {
           logger.error(`[DEBUG] Missing player2Id for ${match.player2.name} in round ${r + 1}, match ${m + 1}`);
           throw new ValidationError(`Invalid player data for ${match.player2.name} in match ${m + 1} of round ${r + 1}`);
         }
@@ -540,7 +539,7 @@ static async saveBracket(tournamentId, bracket, players, userId) {
               player2Id,
               match.player1.name,
               match.player2.name,
-              match.player1.name === "BYE" || match.player2.name === "BYE" ? "completed" : "pending",
+              (match.player1.name === "BYE" || match.player2.name === "BYE") ? "completed" : "pending",
             ],
           );
           const matchId = matchInsert.rows[0].id;
@@ -572,7 +571,7 @@ static async saveBracket(tournamentId, bracket, players, userId) {
               player2Id,
               match.player1.name,
               match.player2.name,
-              match.player1.name === "BYE" || match.player2.name === "BYE" ? "completed" : "pending",
+              (match.player1.name === "BYE" || match.player2.name === "BYE") ? "completed" : "pending",
             ])}`,
           );
           throw matchError;
