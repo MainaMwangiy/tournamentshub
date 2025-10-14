@@ -437,7 +437,7 @@ static async saveBracket(tournamentId, bracket, players, userId) {
     }
 
     const { max_players } = tournamentResult.rows[0];
-    console.log(players, bracket)
+    console.log('tests', players, bracket)
     if (
       !players ||
       players.length < 2 ||
