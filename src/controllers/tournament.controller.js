@@ -140,7 +140,7 @@ class TournamentsController {
       const { tournamentId } = req.params
       const { bracket, players } = req.body
       const userId = req.user.id
-      console.log(bracket, players)
+      // console.log(bracket, players)
       const result = await TournamentsService.saveBracket(tournamentId, bracket, players, userId)
       return SuccessResponse(res, 200, "Bracket saved successfully", result)
     } catch (error) {
