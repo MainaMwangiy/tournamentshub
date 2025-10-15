@@ -174,6 +174,31 @@ class TournamentsController {
       next(error)
     }
   }
+
+  static async updatePlayer(req, res, next) {
+    try {
+      const { tournamentId, entryId } = req.params;
+      const playerData = req.body; 
+      const userId = req.user.id;
+      const result = await TournamentsService.updatePlayerEntry(tournamentId, entryId, playerData, userId);
+      return SuccessResponse(res, 200, "Player updated successfully", result);
+    } catch (error) {
+      logger.error(`Update player error: ${error.message}`);
+      next(error);
+    }
+  }
+
+  static async deletePlayer(req, res, next) {
+    try {
+      const { tournamentId, entryId } = req.params;
+      const userId = req.user.id;
+      const result = await TournamentsService.deletePlayerEntry(tournamentId, entryId, userId);
+      return SuccessResponse(res, 200, "Player deleted successfully", result);
+    } catch (error) {
+      logger.error(`Delete player error: ${error.message}`);
+      next(error);
+    }
+  }
 }
 
 export default TournamentsController

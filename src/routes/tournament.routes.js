@@ -26,4 +26,7 @@ router.post("/:tournamentId/player", authMiddleware, TournamentsController.addPl
 // Additional updates
 router.post("/:tournamentId/save-bracket", authMiddleware, TournamentsController.saveBracket)
 
+router.put("/:tournamentId/player/:entryId", authMiddleware, TournamentsController.updatePlayer)
+router.delete("/:tournamentId/player/:entryId", authMiddleware, TournamentsController.deletePlayer)
+
 export default router

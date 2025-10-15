@@ -648,6 +648,81 @@ static async saveBracket(tournamentId, bracket, players, userId) {
     }
   }
 
+  static async updatePlayerEntry(tournamentId, entryId, playerData, userId) {
+    try {
+      const { name, seed } = playerData
+      if (!name) throw new ValidationError("Player name is required")
+      const tournamentCheck = await DatabaseHelper.executeQuery(
+        "SELECT id FROM tournaments WHERE id = $1 AND created_by = $2 AND is_deleted = 0",
+        [tournamentId, userId],
+      )
+      if (tournamentCheck.rows.length === 0) {
+        throw new ValidationError("Tournament not found or unauthorized")
+      }
+      const currentEntry = await DatabaseHelper.executeQuery(
+        "SELECT player_name FROM tournament_entries WHERE id = $1 AND tournament_id = $2 AND is_deleted = 0",
+        [entryId, tournamentId],
+      )
+      if (currentEntry.rows.length === 0) {
+        throw new ValidationError("Player entry not found")
+      }
+      const currentName = currentEntry.rows[0].player_name
+      if (name.trim() !== currentName) {
+        const existing = await DatabaseHelper.executeQuery(
+          "SELECT id FROM tournament_entries WHERE tournament_id = $1 AND player_name = $2 AND is_deleted = 0",
+          [tournamentId, name.trim()],
+        )
+        if (existing.rows.length > 0) {
+          throw new ValidationError("Player name already exists in this tournament")
+        }
+      }
+
+      const result = await DatabaseHelper.executeQuery(
+        "UPDATE tournament_entries SET player_name = $1, seed_number = $2, modified_on = CURRENT_TIMESTAMP WHERE id = $3 AND tournament_id = $4 AND is_deleted = 0 RETURNING *",
+        [name.trim(), seed, entryId, tournamentId],
+      )
+
+      if (result.rows.length === 0) {
+        throw new ValidationError("Failed to update player entry")
+      }
+
+      logger.info(`Player entry ${entryId} updated in tournament ${tournamentId} by user ${userId}`)
+      return result.rows[0]
+    } catch (error) {
+      logger.error(`Error updating player entry ${entryId} in tournament ${tournamentId}: ${error.message}`)
+      throw error
+    }
+  }
+
+  static async deletePlayerEntry(tournamentId, entryId, userId) {
+    try {
+      const tournamentCheck = await DatabaseHelper.executeQuery(
+        "SELECT id FROM tournaments WHERE id = $1 AND created_by = $2 AND is_deleted = 0",
+        [tournamentId, userId],
+      )
+      if (tournamentCheck.rows.length === 0) {
+        throw new ValidationError("Tournament not found or unauthorized")
+      }
+      const existing = await DatabaseHelper.executeQuery(
+        "SELECT id FROM tournament_entries WHERE id = $1 AND tournament_id = $2 AND is_deleted = 0",
+        [entryId, tournamentId],
+      )
+      if (existing.rows.length === 0) {
+        throw new ValidationError("Player entry not found")
+      }
+      const result = await DatabaseHelper.executeQuery(
+        "UPDATE tournament_entries SET is_deleted = 1, modified_on = CURRENT_TIMESTAMP WHERE id = $1 AND tournament_id = $2 AND is_deleted = 0 RETURNING *",
+        [entryId, tournamentId],
+      )
+
+      logger.info(`Player entry ${entryId} soft deleted in tournament ${tournamentId} by user ${userId}`)
+      return result.rows[0]
+    } catch (error) {
+      logger.error(`Error deleting player entry ${entryId} in tournament ${tournamentId}: ${error.message}`)
+      throw error
+    }
+  }
+
   static async getPlayerCount(tournamentId) {
     const result = await DatabaseHelper.executeQuery(
       "SELECT COUNT(*) as count FROM tournament_entries WHERE tournament_id = $1 AND is_deleted = 0",
