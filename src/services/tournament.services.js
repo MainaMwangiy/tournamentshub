@@ -441,8 +441,7 @@ static async saveBracket(tournamentId, bracket, players, userId) {
     if (
       !players ||
       players.length < 2 ||
-      !Number.isInteger(Math.log2(players.length)) ||
-      players.length > max_players
+      !Number.isInteger(Math.log2(players.length))
     ) {
       throw new ValidationError("Invalid number of players for bracket");
     }
