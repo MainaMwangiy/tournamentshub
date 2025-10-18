@@ -35,7 +35,7 @@ const migrations = [
         name VARCHAR(255) NOT NULL,
         description TEXT,
         tournament_type VARCHAR(50) DEFAULT 'single_elimination' CHECK (tournament_type IN ('single_elimination', 'double_elimination', 'round_robin')),
-        max_players INTEGER DEFAULT 16 CHECK (max_players > 0),
+        max_players INTEGER DEFAULT 100000 CHECK (max_players > 0),
         status VARCHAR(20) DEFAULT 'draft' CHECK (status IN ('draft', 'registration', 'in_progress', 'completed', 'cancelled')),
         start_date TIMESTAMP WITH TIME ZONE,
         end_date TIMESTAMP WITH TIME ZONE,

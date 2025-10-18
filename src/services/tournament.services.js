@@ -8,7 +8,7 @@ class TournamentsService {
       name,
       description,
       tournament_type = "single_elimination",
-      max_players = 16,
+      max_players = 100000,
       entry_fee = 0,
     } = tournamentData
 
